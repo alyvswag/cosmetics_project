@@ -25,7 +25,7 @@ public class TokenProvider implements TokenService<Users, Claims> {
     }
 
     @Override
-    public List<String> generate(Users obj) {//T
+    public List<String> generate(Users obj) {
         List<String> tokens = new ArrayList<>();
         tokens.add(0, generateAccessToken(obj));
         tokens.add(1, generateRefreshToken(obj));
@@ -33,7 +33,7 @@ public class TokenProvider implements TokenService<Users, Claims> {
     }
 
     @Override
-    public Claims read(String token) { // access yoxsa refresh ikisinde eliyir
+    public Claims read(String token) { // access yoxsa refresh ikisini də edir
         return Jwts.parserBuilder()
                 .setSigningKey(PublicPrivateKeyUtils.getPublicKey())
                 .build()
@@ -48,7 +48,7 @@ public class TokenProvider implements TokenService<Users, Claims> {
 
     private String generateAccessToken(Users users) {
         Claims claims = Jwts.claims();
-        claims.put(USERNAME_KEY, users.getUsername());//nuray1
+        claims.put(USERNAME_KEY, users.getUsername());
 
         Date now = new Date();
         Date exp = new Date(now.getTime() + securityProperties.getJwt().getAccessTokenValidityTime());
