@@ -23,23 +23,23 @@ class AdminStatsControllerTest {
 
     @Test
     void getOverview_ApiTest() throws Exception {
-        mockMvc.perform(get("/api/admin/stats/overview")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/admin/stats/overview")).andExpect(status().isOk());
     }
 
     @Test
     void getTopProducts_ApiTest() throws Exception {
-        mockMvc.perform(get("/api/admin/stats/top-products")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/admin/stats/top-products")).andExpect(status().isOk());
     }
 
     @Test
     void getOrderStatusStats_ApiTest() throws Exception {
-        mockMvc.perform(get("/api/admin/stats/order-status")
+        mockMvc.perform(get("/api/v1/admin/stats/order-status")
                         .param("orderStatus", "PENDING"))
                 .andExpect(status().isOk());
     }
 
     @Test
     void getMostReviewedProducts_ApiTest() throws Exception {
-        mockMvc.perform(get("/api/admin/stats/most-reviewed")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/admin/stats/most-reviewed")).andExpect(status().isOk());
     }
 }

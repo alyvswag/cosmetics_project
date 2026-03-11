@@ -19,7 +19,7 @@ import java.util.List;
  Satışlar, top məhsullar və sifariş statusları haqqında məlumat gətirir. */
 @Slf4j
 @RestController
-@RequestMapping("/api/admin/stats")
+@RequestMapping("/api/v1/admin/stats")
 @RequiredArgsConstructor
 public class AdminStatsController {
 
