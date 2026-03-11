@@ -8,7 +8,6 @@ import org.example.demo13213.exception.BaseException;
 import org.example.demo13213.model.dao.*;
 import org.example.demo13213.model.dto.enums.order.OrderStatus;
 import org.example.demo13213.repo.cart.CartItemRepo;
-import org.example.demo13213.repo.coupon.CouponRepo;
 import org.example.demo13213.repo.product.ProductInventoryRepo;
 import org.example.demo13213.repo.order.OrderItemRepo;
 import org.example.demo13213.repo.order.OrderRepo;
@@ -26,6 +25,8 @@ import static org.example.demo13213.model.dto.enums.order.OrderStatus.CANCELLED;
 import static org.example.demo13213.model.dto.enums.order.OrderStatus.PAID;
 import static org.example.demo13213.model.dto.enums.response.ErrorResponseMessages.*;
 
+/* Sifarişlərin yaradılması, ödəniş təsdiqi və ləğv edilməsi kimi
+ mürəkkəb biznes məntiqlərini idarə edən service. */
 @Service
 @FieldDefaults(level = AccessLevel.PRIVATE)
 @RequiredArgsConstructor
@@ -37,280 +38,164 @@ public class OrderServiceImpl implements OrderService {
     final OrderRepo orderRepo;
     final OrderItemRepo orderItemsRepo;
     final ProductInventoryRepo productInventoryRepo;
-    final CouponRepo couponRepo;
 
+    // Səbətdəki məhsulları sifarişə çevirir, stoku azaldır və yekun məbləği hesablayır
     @Override
     @Transactional
     public Orders checkoutOrder() {
-        // 1) Aktiv user-i götür
+        // 1. Aktiv sessiyadakı istifadəçi məlumatlarını əldə edirik
         UserPrincipal user = (UserPrincipal) SecurityContextHolder.getContext()
                 .getAuthentication()
                 .getPrincipal();
 
-        // 2) User-in səbətindəki məhsulları tap
+        // 2. İstifadəçinin səbətinin dolu olub-olmadığını yoxlayırıq
         List<CartItems> cartItems = cartItemRepo.findByUserIdForCartItem(user.getId());
         if (cartItems.isEmpty()) {
-            throw BaseException.of(CART_EMPTY);//exception atdiq
+            log.warn("Checkout failed: Cart is empty for user ID: {}", user.getId());
+            throw BaseException.of(CART_EMPTY);
         }
 
-        // 3) User entity-ni tap
+        // 3. İstifadəçi entity-sini bazadan tapırıq
         Users u = userRepo.findUserByUsername(user.getUsername())
                 .orElseThrow(() -> {
-                    log.error("❌ User not found: username={}", user.getUsername());
+                    log.error("User context inconsistency: Username {} not found", user.getUsername());
                     return BaseException.notFound(Users.class.getSimpleName(), "username", user.getUsername());
                 });
 
-        // 4) Orders cədvəlində ilkin order yarat
+        // 4. İlkin sifariş (Order) qeydini PENDING statusu ilə yaradırıq
         Orders order = new Orders();
         order.setUser(u);
         order.setStatus(OrderStatus.PENDING);
-
-        //  shipping fix 5 AZN kimi
-        order.setShippingFee(BigDecimal.valueOf(5));
+        order.setShippingFee(BigDecimal.valueOf(5)); // Standart çatdırılma haqqı: 5 AZN
         orderRepo.save(order);
 
         int totalItems = 0;
         BigDecimal subtotal = BigDecimal.ZERO;
 
-        // 5) Hər CartItem üçün OrderItem yarat, stokdan çıx, total-ları hesabla
+        // 5. Səbətdəki hər bir məhsul üçün sifariş detalı (OrderItem) yaradırıq
         for (CartItems cartItem : cartItems) {
             Products product = cartItem.getProduct();
-
-            // quantity field-i CartItems entity-nə əlavə etdiyini fərz edirəm:
-            // private Integer quantity;
             Integer requestedQty = cartItem.getQuantity();
 
-            // 5.1) Stoku yoxla
+            // 5.1. Stok vəziyyətini yoxlayırıq
             ProductInventory inventory = productInventoryRepo.findById(product.getId())
                     .orElseThrow(() -> {
-                        log.error("❌ Inventory not found for productId={}", product.getId());
+                        log.error("Inventory record missing for product ID: {}", product.getId());
                         return BaseException.notFound(ProductInventory.class.getSimpleName(),
                                 "productId", String.valueOf(product.getId()));
                     });
 
             if (inventory.getQuantity() < requestedQty) {
-                log.error("❌ Product out of stock: productId={}, requested={}, available={}",
+                log.warn("Insufficient stock for product ID: {}. Requested: {}, Available: {}",
                         product.getId(), requestedQty, inventory.getQuantity());
                 throw BaseException.of(PRODUCT_OUT_OF_STOCK);
             }
 
-            // 5.2) Qiymət hesabla
+            // 5.2. Məbləğ hesablamaları (Vahid qiymət * Say)
             BigDecimal unitPrice = product.getPrice();
             BigDecimal lineTotal = unitPrice.multiply(BigDecimal.valueOf(requestedQty));
 
-            // 5.3) OrderItems yaz
+            // 5.3. OrderItem qeydini yadda saxlayırıq
             OrderItems orderItem = new OrderItems();
             orderItem.setOrder(order);
             orderItem.setProduct(product);
             orderItem.setQuantity(requestedQty);
             orderItem.setUnitPrice(unitPrice);
             orderItem.setLineTotal(lineTotal);
-
             orderItemsRepo.save(orderItem);
 
-            // 5.4) Toplamları yığ
+            // 5.4. Ümumi cəmləri toplayırıq
             subtotal = subtotal.add(lineTotal);
             totalItems += requestedQty;
 
-            // 5.5) Stokdan çıx
+            // 5.5. Stokdan müvafiq miqdarı azaldırıq
             inventory.setQuantity(inventory.getQuantity() - requestedQty);
             productInventoryRepo.save(inventory);
         }
 
-        // 6) Order-in total-larını set et
+        // 6. Sifarişin yekun maliyyə məlumatlarını set edirik
         order.setTotalItems(totalItems);
         order.setSubtotal(subtotal);
-        // hələ ki endirim yoxdur
         order.setDiscountTotal(BigDecimal.ZERO);
 
         BigDecimal grandTotal = subtotal
                 .subtract(order.getDiscountTotal())
                 .add(order.getShippingFee());
         order.setGrandTotal(grandTotal);
-
         orderRepo.save(order);
 
-        // 7) Səbəti təmizlə
+        // 7. Sifariş tamamlandığı üçün səbəti təmizləyirik
         cartItemRepo.deleteAll(cartItems);
 
+        log.info("Order successfully created. Order ID: {}, Grand Total: {}", order.getId(), grandTotal);
         return order;
     }
 
+    // Ödənişin uğurla tamamlandığını təsdiq edir
     @Override
     public void confirmPayment(Long id) {
+        log.info("Confirming payment for order ID: {}", id);
         Orders order = orderRepo.findByIdForOrders(id)
                 .orElseThrow(() -> {
-            log.error("❌ Order not found. orderId={}", id);
-            return BaseException.notFound("orders", id.toString(), id);
-        });
-        order.setStatus(PAID);
-        orderRepo.save(order);
-        //orderitem cedvelinde orderid ye uygun olan columnlari temizlemeliyik
-    }
-
-    @Override
-    public void cancelPayment(Long id) {
-        Orders order = orderRepo.findByIdForOrders(id)
-                .orElseThrow(() -> {
-                    log.error("❌ Order not found. orderId={}", id);
+                    log.error("Order not found for confirmation. ID: {}", id);
                     return BaseException.notFound("orders", id.toString(), id);
                 });
-        order.setStatus(CANCELLED);
-        //indi ise product inventoryden mehsulun sayi cixilir
-        //ilk once List orderitemsden order id ye uygun olan order itemslari getirirem
-        //sora for dovru qurub hemin for dovrunde sira sira
-        List<OrderItems> orderItems = orderItemsRepo.findByOrderItemForOrderId(id);
-        if (orderItems.isEmpty()) {
-            throw BaseException.of(ORDER_EMPTY);//exception atdiq
-        }
-        for (OrderItems orderItem : orderItems) {
-            ProductInventory inventory = productInventoryRepo.findById(orderItem.getProduct().getId())
-                    .orElseThrow(() -> {
-                        return BaseException.notFound(ProductInventory.class.getSimpleName(),
-                                "productId", String.valueOf(orderItem.getProduct().getId()));
-                    });
-            inventory.setQuantity(inventory.getQuantity()+orderItem.getQuantity());
-            productInventoryRepo.save(inventory);
-        }
+        order.setStatus(PAID);
         orderRepo.save(order);
     }
 
+    // Ödəniş ləğv edildikdə statusu yeniləyir və məhsulları stoka geri qaytarır
+    @Override
+    @Transactional
+    public void cancelPayment(Long id) {
+        log.info("Initiating cancellation for order ID: {}", id);
+        Orders order = orderRepo.findByIdForOrders(id)
+                .orElseThrow(() -> {
+                    log.error("Order not found for cancellation. ID: {}", id);
+                    return BaseException.notFound("orders", id.toString(), id);
+                });
+
+        order.setStatus(CANCELLED);
+
+        // Sifarişə aid məhsulları tapıb stoka geri yükləyirik
+        List<OrderItems> orderItems = orderItemsRepo.findByOrderItemForOrderId(id);
+        if (orderItems.isEmpty()) {
+            log.warn("Cancellation notice: No items found for order ID: {}", id);
+            throw BaseException.of(ORDER_EMPTY);
+        }
+
+        for (OrderItems orderItem : orderItems) {
+            ProductInventory inventory = productInventoryRepo.findById(orderItem.getProduct().getId())
+                    .orElseThrow(() -> BaseException.notFound(ProductInventory.class.getSimpleName(),
+                            "productId", String.valueOf(orderItem.getProduct().getId())));
+
+            inventory.setQuantity(inventory.getQuantity() + orderItem.getQuantity());
+            productInventoryRepo.save(inventory);
+        }
+
+        orderRepo.save(order);
+        log.info("Order ID: {} successfully cancelled and inventory restocked", id);
+    }
+
+    // İstifadəçinin bütün keçmiş sifarişlərini və detallarını gətirir
     @Override
     public List<OrderItems> myOrders() {
-        // 1) Aktiv user-i götür
         UserPrincipal user = (UserPrincipal) SecurityContextHolder.getContext()
                 .getAuthentication()
                 .getPrincipal();
 
+        log.info("Fetching order history for user: {}", user.getUsername());
+
         Users u = userRepo.findUserByUsername(user.getUsername())
-                .orElseThrow(() -> {
-                    log.error("❌ User not found: username={}", user.getUsername());
-                    return BaseException.notFound(Users.class.getSimpleName(), "username", user.getUsername());
-                });
+                .orElseThrow(() -> BaseException.notFound(Users.class.getSimpleName(), "username", user.getUsername()));
+
         List<Orders> orders = orderRepo.findOrdersByUserId(u.getId());
-        List<OrderItems> orderItems = new ArrayList<OrderItems>();
-        for(Orders order : orders) {
-            List<OrderItems> oi = orderItemsRepo.findByOrderItemForOrderId(order.getId());
-            orderItems.addAll(oi);
+        List<OrderItems> allOrderItems = new ArrayList<>();
+
+        for (Orders order : orders) {
+            List<OrderItems> items = orderItemsRepo.findByOrderItemForOrderId(order.getId());
+            allOrderItems.addAll(items);
         }
-        return orderItems;
-    }
-    @Transactional
-    public void applyCouponForOrders(String couponCode, Long orderId) {
-        // 1. Kuponu tapırıq
-        Coupons coupon = couponRepo.findCoupons(couponCode, true)
-                .orElseThrow(() -> {
-                    log.error("❌ Coupon not found or inactive. code={}", couponCode);
-                    return BaseException.notFound("coupon", "code", couponCode);
-                });
-
-        // 2. Order-i tapırıq (burda səndə id yazılmışdı, onu orderId ilə düzəldirəm)
-        Orders order = orderRepo.findByIdForOrders(orderId)
-                .orElseThrow(() -> {
-                    log.error("❌ Order not found. orderId={}", orderId);
-                    return BaseException.notFound("orders", "id", orderId.toString());
-                });
-
-        // 3. Bu order-ə aid bütün OrderItems
-        List<OrderItems> orderItems = orderItemsRepo.findByOrderItemForOrderId(orderId);
-        if (orderItems.isEmpty()) {
-            throw BaseException.of(ORDER_EMPTY);
-        }
-
-        // 4. Coupon məlumatları
-        if (coupon.getCategory() == null || coupon.getCategory().getId() == null) {
-            // Bu halda kupon hansı kategoriya üçün keçərlidir bilinmir
-            // istəsən burada ayrıca exception ata bilərsən
-            log.error("❌ Coupon category is null. couponId={}", coupon.getId());
-            throw BaseException.of(COUPON_NOT_APPLICABLE);
-        }
-
-        Long couponCategoryId = coupon.getCategory().getId();
-        BigDecimal couponDiscount = coupon.getDiscountValue();
-
-        if (couponDiscount == null || couponDiscount.compareTo(BigDecimal.ZERO) <= 0) {
-            log.error("❌ Coupon discount value is invalid. couponId={}", coupon.getId());
-            throw BaseException.of(COUPON_NOT_APPLICABLE);
-        }
-
-        // Bu order üçün ümumi endirim və yeni subtotal hesablayacağıq
-        BigDecimal totalDiscountForOrder = BigDecimal.ZERO;
-        BigDecimal newSubtotal = BigDecimal.ZERO;
-
-        for (OrderItems item : orderItems) {
-            Products product = item.getProduct();
-
-            if (product == null ||
-                    product.getCategory() == null ||
-                    product.getCategory().getId() == null) {
-                // Məhsulda kategoriya yoxdursa, endirim tətbiq etmirik
-                newSubtotal = newSubtotal.add(item.getLineTotal());
-                continue;
-            }
-
-            // Bu item kuponun kategoriyasına aid deyil → endirim yox
-            if (!product.getCategory().getId().equals(couponCategoryId)) {
-                newSubtotal = newSubtotal.add(item.getLineTotal());
-                continue;
-            }
-
-            // Kupon tətbiq olunan məhsullar
-            BigDecimal currentUnitPrice = item.getUnitPrice();
-            if (currentUnitPrice == null) {
-                currentUnitPrice = product.getPrice(); // fallback
-            }
-
-            // Unit price-dan kupon dəyərini çıxırıq
-            BigDecimal discountedUnitPrice = currentUnitPrice.subtract(couponDiscount);
-            if (discountedUnitPrice.compareTo(BigDecimal.ZERO) < 0) {
-                discountedUnitPrice = BigDecimal.ZERO;
-            }
-
-            BigDecimal originalLineTotal = item.getLineTotal();
-            if (originalLineTotal == null) {
-                originalLineTotal = currentUnitPrice.multiply(
-                        BigDecimal.valueOf(item.getQuantity())
-                );
-            }
-
-            BigDecimal newLineTotal = discountedUnitPrice.multiply(
-                    BigDecimal.valueOf(item.getQuantity())
-            );
-
-            BigDecimal itemDiscount = originalLineTotal.subtract(newLineTotal);
-            if (itemDiscount.compareTo(BigDecimal.ZERO) < 0) {
-                itemDiscount = BigDecimal.ZERO;
-            }
-
-            // Item-i yeniləyirik
-            item.setUnitPrice(discountedUnitPrice);
-            item.setLineTotal(newLineTotal);
-
-            totalDiscountForOrder = totalDiscountForOrder.add(itemDiscount);
-            newSubtotal = newSubtotal.add(newLineTotal);
-        }
-
-        // Heç bir məhsula endirim düşməyibsə → kupon uyğun deyil
-        if (totalDiscountForOrder.compareTo(BigDecimal.ZERO) <= 0) {
-            log.warn("⚠️ Coupon {} not applicable for orderId={}", couponCode, orderId);
-            throw BaseException.of(COUPON_NOT_APPLICABLE);
-        }
-
-        // OrderItems-ləri save edirik
-        orderItemsRepo.saveAll(orderItems);
-
-        // 5. Order modelini yeniləyirik
-        order.setSubtotal(newSubtotal);                       // endirimdən sonrakı ümumi məbləğ
-        order.setDiscountTotal(totalDiscountForOrder);        // bu kupondan gələn ümumi endirim
-        BigDecimal shippingFee = order.getShippingFee() != null
-                ? order.getShippingFee()
-                : BigDecimal.ZERO;
-
-        order.setGrandTotal(newSubtotal.add(shippingFee));    // final məbləğ = subtotal + shipping
-
-        orderRepo.save(order);
-
-        log.info("✅ Coupon {} applied successfully for orderId={}, totalDiscount={}",
-                couponCode, orderId, totalDiscountForOrder);
+        return allOrderItems;
     }
 }

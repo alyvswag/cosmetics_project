@@ -1,6 +1,5 @@
 package org.example.demo13213.repo.user;
 
-
 import org.example.demo13213.model.dao.Users;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;

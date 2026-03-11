@@ -10,7 +10,6 @@ import java.util.Optional;
 
 @Repository
 public interface CouponRepo extends JpaRepository<Coupons, Long> {
-
     @Query("SELECT c FROM Coupons c WHERE c.name = :name AND c.isActive = :isActive")
     Optional<Coupons> findCoupons(@Param("name") String name,
                                   @Param("isActive") Boolean isActive);

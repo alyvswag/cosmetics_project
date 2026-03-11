@@ -26,7 +26,7 @@ public class UserPrincipal implements UserDetails {
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         // Hələlik rollar yoxdur, boş siyahı qaytarırıq
-        //senin sisteminde rol based deyil
+        // Sistem rol based deyil
         return Collections.emptyList();
     }
 

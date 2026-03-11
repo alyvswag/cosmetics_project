@@ -17,6 +17,6 @@ public class ProductResponseDetails {
     BigDecimal price;          // ilkin qiymət
     BigDecimal finalPrice;     // endirimdən sonra qiymət
     Boolean inStock;           // stokda var ya yox
-    Double avgRating;          // ortalama reytinq// review-ların siyahısı
-    String category;
+    Double avgRating;          // ortalama reytinq
+    String category;           // review-ların siyahısı
 }

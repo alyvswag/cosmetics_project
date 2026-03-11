@@ -12,7 +12,6 @@ public enum SuccessResponseMessages implements ResponseMessages {
     SUCCESS("Success", "Successfully", HttpStatus.OK),
     CREATED("Created", "Successfully created", HttpStatus.CREATED);
 
-
     String key;
     String message;
     HttpStatus httpStatus;

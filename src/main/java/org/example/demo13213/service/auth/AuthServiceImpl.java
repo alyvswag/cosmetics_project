@@ -20,13 +20,14 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.security.core.AuthenticationException;
 
 import static org.example.demo13213.model.dto.enums.response.ErrorResponseMessages.INVALID_USERNAME_OR_PASSWORD;
 import static org.example.demo13213.model.dto.enums.response.ErrorResponseMessages.USERNAME_ALREADY_REGISTERED;
 import static org.example.demo13213.utils.CommonUtils.throwIf;
 
-import org.springframework.security.core.AuthenticationException;
-
+/* İstifadəçilərin qeydiyyatı, autentifikasiyası və token idarəetməsini
+ həyata keçirən əsas təhlükəsizlik service-i. */
 @Service
 @FieldDefaults(level = AccessLevel.PRIVATE)
 @RequiredArgsConstructor
@@ -40,21 +41,18 @@ public class AuthServiceImpl implements AuthService {
     final TokenProvider tokenProvider;
     final UserDetailsService userDetailsService;
 
+    // Yeni istifadəçi yaradır və ona boş səbət təyin edir
     @Override
     public LoginResponse registerUser(UserRequestCreate userRequestCreate) {
+        log.info("Starting registration process for username: {}", userRequestCreate.getUsername());
 
-        log.info("➡ Register request received for username={}", userRequestCreate.getUsername());
-
+        // İstifadəçi adının bazada mövcudluğunu yoxlayır (təkrarlanma olmamalıdır)
         throwIf(
-                //1ci hisse checker
-                () -> userRepo.findUserByUsername(userRequestCreate.getUsername()).isPresent(),//optional<user1>.is
-                //2ci hisse exception
+                () -> userRepo.findUserByUsername(userRequestCreate.getUsername()).isPresent(),
                 BaseException.of(USERNAME_ALREADY_REGISTERED)
         );
 
-        log.debug("✔ Username not taken. Creating new user…");
-
-        //mapper islemedi manual mapping etdik
+        // Yeni istifadəçi obyekti yaradılır, şifrə kodlaşdırılır və yadda saxlanılır
         Users users = new Users();
         users.setUsername(userRequestCreate.getUsername());
         users.setPassword(passwordEncoder.encode(userRequestCreate.getPassword()));
@@ -62,108 +60,103 @@ public class AuthServiceImpl implements AuthService {
         users.setIsActive(true);
         userRepo.save(users);
 
-        log.info("✔ User created successfully: id={}, username={}", users.getId(), users.getUsername());
-
+        // İstifadəçiyə aid boş səbət (cart) obyekti yaradılır
         Carts carts = new Carts();
         carts.setUser(users);
         cartRepo.save(carts);
 
-        log.info("🛒 Cart created for user id={}", users.getId());
-
+        // Qeydiyyatdan dərhal sonra tokenləri hazırlayıb qaytarır
         return prepareLoginResponse(userRequestCreate.getUsername());
     }
 
+    // İstifadəçi məlumatlarını yoxlayır və sistemə girişini təmin edir
     @Override
     public LoginResponse login(LoginRequestPayload payload) {
+        log.info("Login attempt initiated for user: {}", payload.getUsername());
 
-        log.info("➡ Login attempt for username={}", payload.getUsername());
+        // Kimlik doğrulaması aparılır (şifrə və istifadəçi adı yoxlanılır)
+        authenticate(payload);
 
-        authenticate(payload);//bu metod pass ve useri yoxlayir
-
-        log.info("✔ Login successful for username={}", payload.getUsername());
-
+        // Giriş uğurludursa tokenləri hazırlayır
         return prepareLoginResponse(payload.getUsername());
     }
 
+    // Mövcud refresh token ilə yeni access və refresh token cütlüyü yaradır
     @Override
     public LoginResponse refreshToken(String refreshToken) {
+        log.info("Processing refresh token request");
 
-        log.info("➡ Refresh token request received");
+        // Token daxilindən istifadəçi adı əldə edilir
+        String username = tokenProvider.getUsername(refreshToken);
 
-        String username = tokenProvider.getUsername(refreshToken); //nuray1
-
-        log.info("✔ Refresh token valid. Issuing new tokens for username={}", username);
-
+        // Yeni tokenlər generasiya olunur
         return prepareLoginResponse(username);
     }
 
+    // Cari sessiyanı (SecurityContext) təmizləyərək çıxış edir
     @Override
     public void logout() {
-        log.info("➡ Logout request received. Clearing SecurityContext...");
+        log.info("Processing logout request");
+
+        // Təhlükəsizlik kontekstini (cari sessiyanı) sıfırlayır
         SecurityContextHolder.clearContext();
-        log.info("✔ Logout successful");
     }
 
+    // Daxil olan token əsasında istifadəçi kimliyini SecurityContext-də saxlayır
     @Override
     public void setAuthentication(String username) {
+        log.info("Setting security context for user: {}", username);
 
-        log.debug("➡ Setting authentication for username={}", username);
-
+        // İstifadəçi məlumatlarını yükləyir
         UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
+        // Autentifikasiya obyektini SecurityContext-ə daxil edir
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities())
         );
-
-        log.info("✔ Authentication set for username={}", username);
-//istifadecinin kim oldugun saxlanilr
     }
 
-
-//private classlar
-
+    // Tokenlərin generasiya edilməsi və cavabın hazırlanması
     private LoginResponse prepareLoginResponse(String username) {
+        log.info("Generating security tokens for user: {}", username);
 
-        log.debug("➡ Preparing login response for username={}", username);
+        // İstifadəçini bazadan tapır
+        Users users = findUserByUser(username);
 
-        Users users = findUserByUser(username);//talib1
+        // TokenProvider vasitəsilə access və refresh tokenləri çəkir (list indeksləri ilə)
         String accessToken = tokenProvider.generate(users).get(0);
         String refreshToken = tokenProvider.generate(users).get(1);
 
-        log.debug("✔ Tokens generated for username={}", username);
-
+        // Cavab obyektini inşa edir
         return LoginResponse.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshToken)
                 .build();
-
     }
 
+    // İstifadəçini bazadan axtarır, tapmadıqda xəta qaytarır
     private Users findUserByUser(String u) {
-        log.debug("➡ Searching user by username={}", u);
-
         return userRepo.findUserByUsername(u)
                 .orElseThrow(() -> {
-                    log.error("❌ User not found: username={}", u);
+                    log.error("User not found in database: {}", u);
                     return BaseException.notFound(Users.class.getSimpleName(), "user", u);
                 });
     }
 
+    // Şifrə və istifadəçi adının doğruluğunu yoxlayır
     private void authenticate(LoginRequestPayload request) {
         try {
-            log.debug("➡ Authenticating username={}", request.getUsername());
-
+            // Spring Security vasitəsilə girişi yoxlayır
             authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
             );
-
         } catch (AuthenticationException e) {
+            log.warn("Authentication failed for user: {}", request.getUsername());
 
-            log.error("❌ Authentication failed for username={}", request.getUsername());
-
+            // Xətanın növünə görə uyğun exception edir
             throw e.getCause() instanceof BaseException ?
                     (BaseException) e.getCause() :
-                    BaseException.of(INVALID_USERNAME_OR_PASSWORD);//user ve yaxud parol yanlisdir
+                    BaseException.of(INVALID_USERNAME_OR_PASSWORD);
         }
     }
 }

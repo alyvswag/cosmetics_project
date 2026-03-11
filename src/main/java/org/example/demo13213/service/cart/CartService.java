@@ -10,8 +10,7 @@ public interface CartService {
 
     void addCart(Long productId);
 
-   //todo: void removeCart(Long productId);
-   List<ProductCouponResponse> applyCoupon(String couponCode);
+    List<ProductCouponResponse> applyCoupon(String couponCode);
 
     void removeCart(Long productId);
 }

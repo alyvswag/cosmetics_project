@@ -13,7 +13,7 @@ public class CommonUtils {
             throw ex;
         }
     }
-    //ternary operatorunun daha tekmil formasi
-    //true gelse exception atilir
-    //false gelse davam edirik
+    //ternary operatorunun daha təkmilləşdirilmiş forması
+    //true gəlsə exception atılır
+    //false gəlsə davam edirik
 }

@@ -29,7 +29,6 @@ public class AuthorizationFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String path = request.getRequestURI();
 
-
         if (path.equals("/api/v1/products/search/")) {
             filterChain.doFilter(request, response);
             return;

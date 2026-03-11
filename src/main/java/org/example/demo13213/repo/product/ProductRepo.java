@@ -13,7 +13,6 @@ import java.util.Optional;
 
 @Repository
 public interface ProductRepo extends JpaRepository<Products, Long> {
-
     @Query("SELECT p FROM Products p " +
             "WHERE p.isActive = true " +
             "AND LOWER(p.name) LIKE LOWER(CONCAT('%', :name, '%'))")
