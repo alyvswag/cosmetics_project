@@ -9,10 +9,10 @@
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
     <groupId>org.example</groupId>
-    <artifactId>demo13213</artifactId>
+    <artifactId>kylie-cosmetics</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>demo13213</name>
-    <description>demo13213</description>
+    <name>kylie-cosmetics</name>
+    <description>kylie-cosmetics</description>
     <url/>
     <licenses>
         <license/>
