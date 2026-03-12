@@ -5,7 +5,6 @@ import io.swagger.v3.oas.annotations.enums.SecuritySchemeType;
 import io.swagger.v3.oas.annotations.security.SecurityScheme;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Contact;
-import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -28,14 +27,7 @@ public class SwaggerConfig {
         contact.setEmail("nurayagazade@icloud.com");
         contact.setName("Nuray Aghazade");
 
-        Info info = new Info()
-                .title("Online Library Management System")
-                .version("1.0")
-                .contact(contact)
-                .description("Library resources, users and management\n" +
-                        " a complex system to provide.");
-
-        return new OpenAPI().info(info)
+        return new OpenAPI()
                 .addSecurityItem(new SecurityRequirement().addList("Authorization"));
     }
 }
