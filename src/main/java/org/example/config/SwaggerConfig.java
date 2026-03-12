@@ -27,7 +27,6 @@ public class SwaggerConfig {
         Contact contact = new Contact();
         contact.setEmail("nurayagazade@icloud.com");
         contact.setName("Nuray Aghazade");
-        contact.setUrl("https://github.com/alyvswag");
 
         Info info = new Info()
                 .title("Online Library Management System")
